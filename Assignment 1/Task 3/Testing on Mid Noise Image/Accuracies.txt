@@ -1,0 +1,6 @@
+The accuracies were as follows
+Accuracy for class 1:  99.51171875
+Accuracy for class 2:  98.6480712890625
+Accuracy for class 3:  99.609375
+Accuracy for class 4:  0.0
+Overall Accuracy:  74.44229125976562

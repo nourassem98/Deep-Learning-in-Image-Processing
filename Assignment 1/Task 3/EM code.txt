@@ -1,0 +1,241 @@
+import datetime
+from dateutil.relativedelta import relativedelta
+
+import numpy as np
+from numpy.random import randint, random
+import scipy.stats
+import math
+import cv2
+from scipy import ndimage
+import matplotlib.pyplot
+
+from sklearn import cluster
+from scipy.cluster.vq import kmeans2
+import matplotlib.pyplot as plt
+from scipy import ndimage
+
+import numpy as np; 
+import math;
+import cv2;
+from matplotlib import pyplot as plt;
+from numpy import asarray
+from numpy import savetxt
+
+
+# input fllename >> output 3d array
+def read_img(filename, mode, size):
+    if mode == 'RGB':
+        img_3d = matplotlib.pyplot.imread(filename,1)
+    elif mode == 'L':
+        img_3d = matplotlib.pyplot.imread(filename,0)
+    # Downsample the image
+    small = cv2.resize(img_3d, (0, 0), fx = size[0], fy = size[1])
+    # Blurring effect to denoise
+    blur = cv2.blur(small, (4, 4))
+    return blur
+
+
+# input 3d array >> output 2d array
+def flatten_img(img_3d, mode):
+    if mode == 'RGB':
+        x, y, z = img_3d.shape
+        img_2d = img_3d.reshape(x*y, z)
+        img_2d = np.array(img_2d, dtype = np.float64)
+    elif mode == 'L':
+        x, y = img_3d.shape
+        img_2d = img_3d.reshape(x*y, 1)
+        img_2d = np.array(img_2d, dtype = np.float64)
+    return img_2d
+
+
+# input 2d array >> output 3d array
+def recover_img(img_2d, X, Y, mode = 'RGB', vis = False):
+    #img_2d = cv2.resize(img_2d, (0, 0), fx=10, fy=10)
+    if mode == 'RGB':
+        img_2d = (img_2d * 255).astype(np.uint8)
+        recover_img = img_2d.reshape(X, Y, 3)
+    elif mode == 'L':
+        recover_img = img_2d.reshape(X, Y)
+    return recover_img
+
+
+# input 2d array >> output estimated means, stds, pis
+
+def random_init(img, k):
+    # For gray-scale
+    means = [25,90,160,240]
+    cov = [1,2,3,4]
+    pis = [1,1,1,1]
+    return means, cov, pis
+
+
+# E-Step: Update Parameters
+# update the conditional pdf - prob that pixel i given class j
+def update_responsibility(img, means, cov, pis, k):
+    # responsibilities: i th pixels, j th class
+    # pis * gaussian.pdf
+    responsibilities = np.array([pis[j] * scipy.stats.multivariate_normal.pdf(img, mean=means[j], cov=cov[j]) for j in range(k)]).T
+    # normalize for each row
+    norm = np.sum(responsibilities, axis = 1)
+    # convert to column vector
+    norm = np.reshape(norm, (len(norm), 1))
+    responsibilities = responsibilities / norm
+    return responsibilities
+
+
+# update pi for each class of Gaussian model
+def update_pis(responsibilities):
+    pis = np.sum(responsibilities, axis = 0) / responsibilities.shape[0]
+    return pis
+
+# update means for each class of Gaussian model
+def update_means(img, responsibilities):
+    means = []
+    class_n = responsibilities.shape[1]
+    for j in range(class_n):
+        weight = responsibilities[:, j] / np.sum(responsibilities[:, j])
+        weight = np.reshape(weight, (1, len(weight)))
+        means_j = weight.dot(img)
+        means.append(means_j[0])
+    means = np.array(means)
+    return means
+
+# update covariance matrix for each class of Gaussian model
+def update_covariance(img, responsibilities, means):
+    cov = []
+    class_n = responsibilities.shape[1]
+    for j in range(class_n):
+        weight = responsibilities[:, j] / np.sum(responsibilities[:, j])
+        weight = np.reshape(weight, (1, len(weight)))
+        # Each pixels have a covariance matrice
+        covs = [np.mat(i - means[j]).T * np.mat(i - means[j]) for i in img]
+        # Weighted sum of covariance matrices
+        cov_j = sum(weight[0][i] * covs[i] for i in range(len(weight[0])))
+        cov.append(cov_j)
+    cov = np.array(cov)
+    return cov
+
+
+# M-step: choose a label that maximise the likelihood
+def update_labels(responsibilities):
+    labels = np.argmax(responsibilities, axis = 1)
+    return labels
+
+
+def update_loglikelihood(img, means, cov, pis, k):
+    pdf = np.array([pis[j] * scipy.stats.multivariate_normal.pdf(img, mean=means[j], cov=cov[j]) for j in range(k)])
+    log_ll = np.log(np.sum(pdf, axis = 0))
+    log_ll_sum = np.sum(log_ll)
+    return log_ll_sum
+
+
+def EM_cluster(k,initialEstimations,error,img):
+
+    #  init setting
+    iter_n = 9999
+    cnt = 0
+    likelihood_arr = []
+    means_arr = []
+    means, cov, pis = initialEstimations
+
+    likelihood = 0
+    new_likelihood = 2
+    means_arr.append(means)
+    responsibilities = update_responsibility(img, means, cov, pis, k)
+    while (abs(likelihood - new_likelihood) > error) and (cnt != iter_n):
+        start_dt = datetime.datetime.now()
+        cnt += 1
+        likelihood = new_likelihood
+        # M-Step
+        labels = update_labels(responsibilities)
+        # E-step
+        responsibilities = update_responsibility(img, means, cov, pis, k)
+        means = update_means(img, responsibilities)
+        cov = update_covariance(img, responsibilities, means)
+        pis = update_pis(responsibilities)
+        new_likelihood = update_loglikelihood(img, means, cov, pis, k)
+        likelihood_arr.append(new_likelihood)
+        end_dt = datetime.datetime.now()
+        diff = relativedelta(end_dt, start_dt)
+        print("iter: %s" % (cnt))
+        # print("log-likelihood = {}".format(new_likelihood))
+        # Store means stat
+        means_arr.append(means)
+    likelihood_arr = np.array(likelihood_arr)
+    print('Converge at iteration {}'.format(cnt + 1))
+
+    return labels, means, cnt
+
+
+
+def getConfusionMatrix(img):
+    arrOut = np.zeros((4,4))
+    for i in range(512):
+      for j in range(512):
+        if(i<256 and j<256):
+          arrOut[0][img[i][j]]=arrOut[0][img[i][j]]+1
+        if(i<256 and j>256):
+          arrOut[2][img[i][j]]=arrOut[2][img[i][j]]+1
+        if(i>256 and j<256):
+          arrOut[1][img[i][j]]=arrOut[1][img[i][j]]+1
+        if(i>256 and j>256):
+          arrOut[3][img[i][j]]=arrOut[3][img[i][j]]+1
+    
+    return arrOut
+
+
+FILENAME_LIST = ['/content/testGrayImage_hi.png']
+# FILENAME_LIST = ['/content/testGrayImage_mid.png']
+# FILENAME_LIST = ['/content/testGrayImage_low.png']
+# Visualize demo images
+gray_img_list = []
+dim_img_list = []
+for filename in FILENAME_LIST:
+    gray_img = read_img(filename = filename, mode = 'L', size = (1,1))
+    x, y = gray_img.shape
+    # Store dimension for each image
+    dim_img_list.append((x,y))
+    # Store img 
+    gray_img_list.append(gray_img)
+    
+
+
+img_list = [flatten_img(image, mode = 'L') for image in gray_img_list]
+
+em_img_list = []
+means_list = []
+confusion_list = []
+iterations_list = []
+
+for img, dim in zip(img_list, dim_img_list):
+    
+    x = random_init(img, 4)
+    labels, means, iter = EM_cluster(4,x,0.01,img)
+
+    means = np.array([element[0] for element in means])
+    em_img = means[labels]
+    recover_img = em_img.reshape(dim[0], dim[1])
+    classificationMatrix=labels.reshape(dim[0], dim[1])
+    confusionMatrix = getConfusionMatrix(classificationMatrix)
+
+    Accuracies = [100*confusionMatrix[0][0]/65536 , 100*confusionMatrix[1][1]/65536 , 100*confusionMatrix[2][2]/65536 , 100*confusionMatrix[3][3]/65536 , 100*(confusionMatrix[0][0]+confusionMatrix[1][1]+confusionMatrix[2][2]+confusionMatrix[3][3])/262144]
+    print("The accuracies were as follows")
+    print("Accuracy for class 1: ",Accuracies[0])
+    print("Accuracy for class 2: ",Accuracies[1])
+    print("Accuracy for class 3: ",Accuracies[2])
+    print("Accuracy for class 4: ",Accuracies[3])
+    print("Overall Accuracy: ",Accuracies[4])
+
+    # store required stat
+    confusion_list.append(confusionMatrix)
+    em_img_list.append(recover_img)
+    means_list.append(means)
+    iterations_list.append(iter)
+
+
+    dataL = asarray(classificationMatrix)
+    savetxt('/content/Classification Matrix.csv', dataL, delimiter=',')
+    dataF = asarray(confusionMatrix)
+    savetxt('/content/Confusion Matrix.csv', dataF, delimiter=',')
+    cv2.imwrite('/content/Output Image.png', recover_img)
+

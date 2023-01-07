@@ -1,0 +1,74 @@
+# Importing Necessary Libraries
+import matplotlib.pyplot as plt
+import cv2
+import numpy as np
+
+def noisy(noise_level,image):
+      row,col= image.shape
+      var = noise_level
+      sigma = var**0.5
+      mean = sigma*-1
+      gauss = np.random.normal(mean,sigma,(row,col))
+      gauss = gauss.reshape(row,col)
+      noisy = image + gauss
+      return noisy
+
+
+def gen_Img():
+
+  height = 512
+  width = 512
+  img = np.zeros((height,width), np.uint8)
+  img[:,:] = 100
+  img[0:256,0:256] = 50
+  img[:,width//2:width] = 150
+  img[256:512,256:512] = 200
+
+  return img
+
+
+
+
+        
+img = gen_Img()
+img1 = noisy(100,img)
+img2 = noisy(200,img)
+img3 = noisy(300,img)
+
+cv2.imwrite('/content/Original.png', img)
+cv2.imwrite('/content/testGrayImage_low.png', img1)
+cv2.imwrite('/content/testGrayImage_mid.png', img2)
+cv2.imwrite('/content/testGrayImage_hi.png', img3)
+
+
+plt.figure(figsize=(10, 10))
+plt.subplot(4, 2, 1)
+plt.imshow(img,'gray')
+plt.subplot(4, 2, 2)
+plt.hist(img.ravel(),256,[0,256]); plt.show()
+plt.savefig('histOriginal.png')
+
+plt.figure(figsize=(10, 10))
+plt.subplot(4, 2, 3)
+plt.imshow(img1,'gray')
+plt.subplot(4, 2, 4)
+plt.hist(img1.ravel(),256,[0,256]); plt.show()
+plt.savefig('histLow.png')
+
+
+plt.figure(figsize=(10, 10))
+plt.subplot(4, 2, 5)
+plt.imshow(img2,'gray')
+plt.subplot(4, 2, 6)
+plt.hist(img2.ravel(),256,[0,256]); plt.show()
+plt.savefig('histMid.png')
+
+
+plt.figure(figsize=(10, 10))
+plt.subplot(4, 2, 7)
+plt.imshow(img3,'gray')
+plt.subplot(4, 2, 8)
+plt.hist(img3.ravel(),256,[0,256]); 
+plt.savefig('histHi.png')
+
+
